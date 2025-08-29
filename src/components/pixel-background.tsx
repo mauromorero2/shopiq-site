@@ -663,6 +663,43 @@ function pointAt(path: [number, number][], dist: number) {
   return { x: last[0], y: last[1], angle };
 }
 
+// Disegna il percorso "parzialmente" in base al progress (0..1)
+function strokePathProgress(
+  ctx: CanvasRenderingContext2D,
+  path: [number, number][],
+  progress: number
+): void {
+  if (!path || path.length < 2) return;
+  const L = pathLength(path);
+  const target = Math.max(0, Math.min(1, progress)) * L;
+
+  let acc = 0;
+  ctx.beginPath();
+  ctx.moveTo(path[0][0], path[0][1]);
+
+  for (let i = 1; i < path.length; i++) {
+    const [x0, y0] = path[i - 1];
+    const [x1, y1] = path[i];
+    const seg = Math.hypot(x1 - x0, y1 - y0);
+
+    if (acc + seg <= target) {
+      // possiamo disegnare tutto il segmento
+      ctx.lineTo(x1, y1);
+      acc += seg;
+    } else {
+      // disegniamo solo una parte del segmento
+      const t = Math.max(0, Math.min(1, (target - acc) / seg));
+      const x = x0 + (x1 - x0) * t;
+      const y = y0 + (y1 - y0) * t;
+      ctx.lineTo(x, y);
+      break;
+    }
+  }
+
+  ctx.stroke();
+}
+
+
 /* Math utils */
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
