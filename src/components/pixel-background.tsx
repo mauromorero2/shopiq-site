@@ -1,49 +1,54 @@
 "use client";
 /**
- * PixelBackground — Mist Mint + Pixel Dust Reveal (WOW)
- * - Palette monocromatica chiarissima (Mist Mint, 6 livelli)
- * - Safe-zone icone a sinistra: sempre molto chiara
- * - Morph 2.8s con "polvere di pixel" che converge nel wordmark
- * - Reveal payoff dot-matrix + shimmer diagonale #39FF14 (soft, una sola passata)
- * - Dithering ordinato 8x8 (look 16-bit pulito)
- * - Respect "Reduce motion": salto al frame finale (fade 180ms)
+ * PixelBackground — Mist Mint (no neon), two WOW effects:
+ * 1) Kinetic Product Grid (Home/About/Blog): nastri di card → si aggregano in "ShopIQ"
+ * 2) Blueprint Conveyor (Services/Contact): linea di produzione wireframe → scatole compongono "ShopIQ"
+ *
+ * Principi:
+ * - Palette chiarissima (Mist Mint)
+ * - Safe-zone a sinistra per icone/label, sempre molto chiara
+ * - Morph totale ~2.8s; poi micro-vita ≤2%
+ * - Reduce Motion → frame finale con fade breve
+ *
+ * Nessuna dipendenza esterna; solo Canvas2D.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { useUI } from "@/lib/store/ui";
 
 type SceneKey = "home" | "services" | "about" | "blog" | "contact";
+type Mode = "grid" | "conveyor";
 
-export function PixelBackground({
-  duration = 2800,
-  accent = "#39FF14",
-}: {
-  duration?: number;
-  accent?: string;
-}) {
+export function PixelBackground({ duration = 2800 }: { duration?: number }) {
   const section = useUI((s) => s.section);
   const reduce = useUI((s) => s.reduceMotion);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const size = useRef({ w: 0, h: 0 });
-  const colsRef = useRef(128);
-  const rowsRef = useRef(72);
-  const current = useRef<Float32Array | null>(null);
-  const target = useRef<Float32Array | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Particles for "dust" overlay
-  const particlesRef = useRef<Particle[]>([]);
-  const textMaskRef = useRef<Float32Array | null>(null);
-  const shimmerRef = useRef<{ start: number; done: boolean }>({ start: 0, done: false });
+  // mask cache per il wordmark (ShopIQ + payoff)
+  const maskRef = useRef<{ cols: number; rows: number; alpha: Float32Array } | null>(null);
 
-  // Mist Mint palette (light!)
+  // elementi per il GRID (card) e CONVEYOR (scatole)
+  const gridTilesRef = useRef<GridTile[]>([]);
+  const conveyorRef = useRef<ConveyorState | null>(null);
+
   const PALETTE = useMemo(
-    () => ["#F7FFFB", "#EEFFF7", "#E3FFF2", "#D7F7EC", "#C8ECDF", "#B9DFD3"],
+    () => ({
+      // Mist Mint chiaro
+      bg: ["#F7FFFB", "#EEFFF7", "#E3FFF2", "#D7F7EC", "#C8ECDF", "#B9DFD3"],
+      ink: "#0F2A24",
+    }),
     []
   );
 
-  // Resize & grid density (fitta per look 16-bit pulito)
+  const mode: Mode = useMemo(() => {
+    if (section === "services" || section === "contact") return "conveyor";
+    return "grid";
+  }, [section]);
+
+  // Resize + init
   useEffect(() => {
     const resize = () => {
       const c = canvasRef.current!;
@@ -52,350 +57,221 @@ export function PixelBackground({
       c.width = w;
       c.height = h;
       size.current = { w, h };
-
-      const base = Math.min(Math.floor(w / 10.5), Math.floor(h / 10.5)); // più densa del precedente
-      const cols = clampInt(base, 96, 192);
-      const rows = Math.floor((cols * h) / w);
-      colsRef.current = cols;
-      rowsRef.current = rows;
-
-      current.current = new Float32Array(cols * rows);
-      target.current = new Float32Array(cols * rows);
+      // invalida le strutture dipendenti da dimensioni
+      maskRef.current = null;
+      gridTilesRef.current = [];
+      conveyorRef.current = null;
     };
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Scene config (posizioni/scale diverse per sezione)
-  const scene = useMemo(() => SCENES[section], [section]);
-
+  // Render loop
   useEffect(() => {
     const c = canvasRef.current!;
     const ctx = c.getContext("2d")!;
-    const cols = colsRef.current;
-    const rows = rowsRef.current;
-    const total = cols * rows;
-
-    // 1) Base field super chiaro (no macchie scure)
-    const base = makeMistBase(cols, rows, section);
-
-    // 2) Text mask + outline
-    const mask = renderTextMask(cols, rows, scene);
-    textMaskRef.current = mask;
-    const outline = outlineFromMask(mask, cols, rows);
-
-    // 3) Target field (mix base + testo + outline) con clamp luminosità 0.72–0.98
-    const tgt = new Float32Array(total);
-    for (let i = 0; i < total; i++) {
-      const v = base[i] * 0.55 + mask[i] * 1.2 + outline[i] * 0.45;
-      tgt[i] = clamp01(remap(v, 0, 1, 0.72, 0.98));
-    }
-    target.current = tgt;
-
-    // 4) Safe-zone icone (sempre chiarissima)
-    lightenSafeZone(tgt, cols, rows, size.current);
-
-    // 5) Particelle per il "dust reveal" (solo se non reduce)
-    shimmerRef.current = { start: performance.now() + duration * 0.7, done: false };
-    if (!reduce) {
-      particlesRef.current = spawnParticles(cols, rows, mask, duration);
-    } else {
-      particlesRef.current = [];
-    }
-
-    // 6) Disegno/morph
-    if (!current.current || reduce) {
-      current.current = tgt;
-      drawFrame(ctx, current.current, cols, rows, size.current, PALETTE, accent, !!reduce);
-      return;
-    }
-
-    const start = performance.now();
-    const from = current.current.slice();
+    let start = performance.now();
+    if (reduce) start = performance.now() - duration; // salta al finale
 
     const tick = () => {
       const now = performance.now();
-      const p = clamp01((now - start) / duration);
-      const e = easeInOutCubic(p);
+      const t = Math.min(1, (now - start) / duration); // progress 0..1
 
-      const cur = current.current!;
-      for (let i = 0; i < total; i++) cur[i] = lerp(from[i], tgt[i], e);
+      // background uniforme molto chiaro + safe-zone
+      drawBackground(ctx, size.current, PALETTE);
+      drawSafeZone(ctx, size.current);
 
-      drawFrame(ctx, cur, cols, rows, size.current, PALETTE, accent, false, {
-        particles: particlesRef.current,
-        mask: textMaskRef.current!,
-        shimmer: shimmerRef.current,
-        progress: p,
-      });
+      // prepara (se non c'è) la mask del wordmark
+      const mask = ensureTextMask(maskRef, size.current, SCENES[section]);
 
-      if (p < 1) rafRef.current = requestAnimationFrame(tick);
+      if (mode === "grid") {
+        // 0.00–0.40 nastri; 0.40–1.60 swarm→wordmark; 1.60–2.80 lock
+        drawKineticProductGrid(ctx, size.current, PALETTE, t, gridTilesRef, mask);
+      } else {
+        // 0.00–0.80 plotter; 0.80–1.60 pick-pack-ship; 1.60–2.80 assemble→wordmark
+        drawBlueprintConveyor(ctx, size.current, PALETTE, t, conveyorRef, mask, section);
+      }
+
+      // micro-vita post-lock (≤2%), attenuata in safe-zone
+      if (t >= 1) drawBreathing(ctx, size.current);
+
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
     };
-    tick();
 
+    tick();
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [scene, duration, accent, PALETTE, section, reduce]);
+  }, [mode, section, duration, reduce, PALETTE]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 w-full h-full [image-rendering:pixelated]"
-      aria-hidden
-    />
-  );
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" aria-hidden />;
 }
 
-/* =========================
-   Particles ("dust reveal")
-   ========================= */
+/* ──────────────────────────────────────────────────────────────────────────────
+ * SCENE PRESETS (posizioni/scale per testo)
+ * ────────────────────────────────────────────────────────────────────────────── */
 
-type Particle = {
-  x: number;
-  y: number;
-  tx: number;
-  ty: number;
-  t0: number;
-  t1: number;
-  neon: boolean;
+const SCENES: Record<
+  SceneKey,
+  {
+    title: string;
+    subtitle: string;
+    titlePos: [number, number]; // u,v 0..1
+    subPos: [number, number]; // u,v 0..1
+    titleSize: number; // relativo a altezza (0..1)
+    subSize: number; // relativo a altezza (0..1)
+    align: CanvasTextAlign;
+  }
+> = {
+  home: {
+    title: "ShopIQ",
+    subtitle: "We Build, You Sell.",
+    titlePos: [0.56, 0.50],
+    subPos: [0.56, 0.64],
+    titleSize: 0.20,
+    subSize: 0.074,
+    align: "center",
+  },
+  services: {
+    title: "ShopIQ",
+    subtitle: "We Build, You Sell.",
+    titlePos: [0.62, 0.60],
+    subPos: [0.62, 0.74],
+    titleSize: 0.18,
+    subSize: 0.07,
+    align: "center",
+  },
+  about: {
+    title: "ShopIQ",
+    subtitle: "We Build, You Sell.",
+    titlePos: [0.78, 0.36],
+    subPos: [0.78, 0.50],
+    titleSize: 0.16,
+    subSize: 0.065,
+    align: "right",
+  },
+  blog: {
+    title: "ShopIQ",
+    subtitle: "We Build, You Sell.",
+    titlePos: [0.52, 0.30],
+    subPos: [0.52, 0.44],
+    titleSize: 0.14,
+    subSize: 0.06,
+    align: "center",
+  },
+  contact: {
+    title: "ShopIQ",
+    subtitle: "We Build, You Sell.",
+    titlePos: [0.56, 0.68],
+    subPos: [0.56, 0.82],
+    titleSize: 0.18,
+    subSize: 0.07,
+    align: "center",
+  },
 };
 
-function spawnParticles(cols: number, rows: number, mask: Float32Array, duration: number) {
-  const pts: Particle[] = [];
-  const targets: Array<[number, number]> = [];
+/* ──────────────────────────────────────────────────────────────────────────────
+ * BACKGROUND & SAFE-ZONE
+ * ────────────────────────────────────────────────────────────────────────────── */
 
-  // raccogli punti "pieni" del testo (target)
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if (mask[y * cols + x] > 0.55) targets.push([x + 0.5, y + 0.5]);
-    }
-  }
-  if (targets.length === 0) return pts;
-
-  // numero particelle in base alla griglia (limit)
-  const N = clampInt(Math.floor((cols * rows) / 18), 800, 2400);
-
-  const now = performance.now();
-  for (let i = 0; i < N; i++) {
-    // spawn sui bordi
-    const side = i % 4;
-    let x = 0,
-      y = 0;
-    if (side === 0) {
-      x = -2;
-      y = Math.random() * rows;
-    } else if (side === 1) {
-      x = cols + 2;
-      y = Math.random() * rows;
-    } else if (side === 2) {
-      x = Math.random() * cols;
-      y = -2;
-    } else {
-      x = Math.random() * cols;
-      y = rows + 2;
-    }
-    const [tx, ty] = targets[Math.floor(Math.random() * targets.length)];
-    const jitter = (Math.random() - 0.5) * 0.8;
-    const t0 = now + Math.random() * (duration * 0.25);
-    const t1 = t0 + (duration * (0.65 + Math.random() * 0.25));
-    pts.push({ x, y, tx: tx + jitter, ty: ty + jitter, t0, t1, neon: Math.random() < 0.06 });
-  }
-  return pts;
-}
-
-/* =========================
-   Draw (dithering 8x8 + overlays)
-   ========================= */
-
-function drawFrame(
+function drawBackground(
   ctx: CanvasRenderingContext2D,
-  field: Float32Array,
-  cols: number,
-  rows: number,
-  size: { w: number; h: number },
-  PALETTE: string[],
-  accent: string,
-  staticOnly: boolean,
-  extras?: { particles: Particle[]; mask: Float32Array; shimmer: { start: number; done: boolean }; progress: number }
+  { w, h }: { w: number; h: number },
+  P: { bg: string[]; ink: string }
 ) {
-  const { w, h } = size;
-  const cw = Math.ceil(w / cols);
-  const ch = Math.ceil(h / rows);
-  const levels = PALETTE.length;
+  // gradient verticale chiarissimo (Mist Mint)
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, P.bg[0]);
+  g.addColorStop(1, P.bg[2]);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
 
-  // Dithering Bayer 8x8 (0..63)
-  const B = [
-    0, 32, 8, 40, 2, 34, 10, 42,
-    48, 16, 56, 24, 50, 18, 58, 26,
-    12, 44, 4, 36, 14, 46, 6, 38,
-    60, 28, 52, 20, 62, 30, 54, 22,
-    3, 35, 11, 43, 1, 33, 9, 41,
-    51, 19, 59, 27, 49, 17, 57, 25,
-    15, 47, 7, 39, 13, 45, 5, 37,
-    63, 31, 55, 23, 61, 29, 53, 21,
-  ];
-
-  // Draw base dithered frame (molto chiaro)
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      let v = clamp01(field[y * cols + x]); // 0..1 (già clamped 0.72..0.98 circa)
-      const b = B[(y & 7) * 8 + (x & 7)] / 64; // 0..1
-      const q = clamp01(v + (b - 0.5) / (levels * 1.4));
-      const level = Math.min(levels - 1, Math.floor(q * levels));
-      ctx.fillStyle = PALETTE[level];
-      ctx.fillRect(x * cw, y * ch, cw, ch);
-    }
-  }
-
-  if (staticOnly || !extras) return;
-
-  // Overlays: dust + shimmer
-  const { particles, mask, shimmer } = extras;
-  const now = performance.now();
-
-  // 1) Dust particles
+  // pattern diagonale appena percettibile
   ctx.save();
-  for (let i = 0; i < particles.length; i++) {
-    const p = particles[i];
-    const t = (now - p.t0) / (p.t1 - p.t0);
-    if (t <= 0 || t >= 1) continue;
-
-    // ease + swirl
-    const e = easeOutCubic(t);
-    const dx = p.tx - p.x;
-    const dy = p.ty - p.y;
-    const nx = p.x + dx * e;
-    const ny = p.y + dy * e;
-
-    // swirl morbido (percezione di “campo vettoriale”)
-    const swirl = (1 - Math.abs(0.5 - t) * 2) * 0.35;
-    const sx = nx + (-dy) * 0.02 * swirl;
-    const sy = ny + (dx) * 0.02 * swirl;
-
-    const px = Math.floor(sx * cw);
-    const py = Math.floor(sy * ch);
-    ctx.globalAlpha = p.neon ? 0.35 : 0.18;
-    ctx.fillStyle = p.neon ? accent : "#FFFFFF";
-    ctx.fillRect(px, py, cw, ch);
+  ctx.globalAlpha = 0.08;
+  ctx.fillStyle = P.bg[3];
+  const step = 24;
+  for (let x = -h; x < w + h; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + h, h);
+    ctx.lineTo(x + h - 2, h);
+    ctx.lineTo(x - 2, 0);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
-
-  // 2) Shimmer diagonale sul solo testo (una passata soft)
-  if (!shimmer.done && now > shimmer.start) {
-    const span = 220; // ms
-    const t = (now - shimmer.start) / span;
-    if (t >= 1) shimmer.done = true;
-
-    const band = 0.07; // spessore banda
-    ctx.save();
-    ctx.globalAlpha = 0.22; // molto soft
-    ctx.fillStyle = accent;
-
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        if (mask[y * cols + x] < 0.5) continue;
-        const diag = (x + y) / (cols + rows); // 0..1
-        if (Math.abs(diag - t) < band) {
-          ctx.fillRect(x * cw, y * ch, cw, ch);
-        }
-      }
-    }
-    ctx.restore();
-  }
 }
 
-/* =========================
-   Palette / Base / Safe zone / Mask
-   ========================= */
+function drawSafeZone(ctx: CanvasRenderingContext2D, { w, h }: { w: number; h: number }) {
+  const safe = Math.max(200, Math.min(320, Math.round(w * 0.18))); // ~240 px tipico
+  const g = ctx.createLinearGradient(0, 0, safe, 0);
+  g.addColorStop(0, "#FFFFFF");
+  g.addColorStop(1, "#F7FFFB");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, safe, h);
 
-function makeMistBase(cols: number, rows: number, section: SceneKey) {
-  const out = new Float32Array(cols * rows);
-
-  // pattern chiari e leggeri (no macchie scure)
-  const diag = (u: number, v: number, s = 18) =>
-    0.86 + Math.sin((u - v) * s) * 0.02;
-
-  const swirl = (u: number, v: number, t = performance.now()) => {
-    const a = Math.sin(u * 7 + t * 0.0004) * 0.02 + Math.cos(v * 6 + t * 0.0005) * 0.02;
-    return 0.9 + a;
-  };
-
-  const selector: Record<SceneKey, (u: number, v: number) => number> = {
-    home: (u, v) => 0.55 * diag(u, v, 22) + 0.45 * swirl(u, v),
-    services: (u, v) => 0.6 * diag(u, v, 26) + 0.4 * swirl(u, v),
-    about: (u, v) => 0.52 * diag(u, v, 20) + 0.48 * swirl(u, v),
-    blog: (u, v) => 0.6 * diag(u, v, 24) + 0.4 * swirl(u, v),
-    contact: (u, v) => 0.58 * diag(u, v, 28) + 0.42 * swirl(u, v),
-  };
-
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const u = x / (cols - 1);
-      const v = y / (rows - 1);
-      out[y * cols + x] = clamp01(selector[section](u, v));
-    }
-  }
-  return out;
+  // separatore sottilissimo
+  ctx.fillStyle = "rgba(15,42,36,0.06)";
+  ctx.fillRect(safe, 0, 1, h);
 }
 
-function lightenSafeZone(field: Float32Array, cols: number, rows: number, size: { w: number; h: number }) {
-  // fascia sinistra (icone): almeno 92–98% luminosità
-  const safePx = Math.max(200, Math.min(320, Math.round(size.w * 0.18))); // ~240 px tipico
-  const cw = size.w / cols;
+/* ──────────────────────────────────────────────────────────────────────────────
+ * TEXT MASK (ShopIQ + payoff) — rasterizzata in alpha 0..1
+ * ────────────────────────────────────────────────────────────────────────────── */
 
-  const safeCols = Math.ceil(safePx / cw);
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < safeCols; x++) {
-      const i = y * cols + x;
-      // gradiente dolce verso destra
-      const t = x / safeCols;
-      const minL = 0.92 + (1 - t) * 0.04; // 0.96 → 0.92
-      if (field[i] < minL) field[i] = minL;
-    }
-  }
-}
-
-function renderTextMask(
-  cols: number,
-  rows: number,
+function ensureTextMask(
+  maskRef: React.MutableRefObject<{ cols: number; rows: number; alpha: Float32Array } | null>,
+  size: { w: number; h: number },
   s: {
     title: string;
     subtitle: string;
-    titleScale: number;
-    subScale: number;
     titlePos: [number, number];
     subPos: [number, number];
+    titleSize: number;
+    subSize: number;
     align: CanvasTextAlign;
   }
 ) {
+  const targetCols = Math.floor(size.w / 8); // risoluzione maschera (bassa per velocità)
+  const targetRows = Math.floor(size.h / 8);
+  const key = maskRef.current;
+
+  if (key && key.cols === targetCols && key.rows === targetRows) return key;
+
   const can = document.createElement("canvas");
-  can.width = cols;
-  can.height = rows;
+  can.width = targetCols;
+  can.height = targetRows;
   const ctx = can.getContext("2d")!;
-  ctx.clearRect(0, 0, cols, rows);
+  ctx.clearRect(0, 0, targetCols, targetRows);
   ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = "#000";
   ctx.textBaseline = "middle";
   ctx.textAlign = s.align;
 
-  const titlePx = Math.max(6, Math.floor(rows * s.titleScale));
-  const subPx = Math.max(5, Math.floor(rows * s.subScale));
+  const titlePx = Math.max(8, Math.floor(targetRows * s.titleSize));
+  const subPx = Math.max(7, Math.floor(targetRows * s.subSize));
+
+  // Ombra/riempimento leggero per separazione
   ctx.font = `${titlePx}px "Press Start 2P", ui-monospace, monospace`;
-  drawText(ctx, s.title, s.titlePos, cols, rows);
+  drawMaskText(ctx, s.title, s.titlePos, targetCols, targetRows);
 
   ctx.font = `${subPx}px "Press Start 2P", ui-monospace, monospace`;
-  drawText(ctx, s.subtitle, s.subPos, cols, rows);
+  drawMaskText(ctx, s.subtitle, s.subPos, targetCols, targetRows);
 
-  const data = ctx.getImageData(0, 0, cols, rows).data;
-  const out = new Float32Array(cols * rows);
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    out[p] = data[i + 3] / 255;
-  }
+  const data = ctx.getImageData(0, 0, targetCols, targetRows).data;
+  const alpha = new Float32Array(targetCols * targetRows);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) alpha[p] = data[i] > 0 ? 1 : 0;
+
+  const out = { cols: targetCols, rows: targetRows, alpha };
+  maskRef.current = out;
   return out;
 }
 
-function drawText(
+function drawMaskText(
   ctx: CanvasRenderingContext2D,
   text: string,
   uv: [number, number],
@@ -404,105 +280,387 @@ function drawText(
 ) {
   const x = uv[0] * cols;
   const y = uv[1] * rows;
-  // micro ombra/riempimento per separazione (soft, chiara)
   ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "#fff";
+  ctx.globalAlpha = 0.95;
   ctx.fillText(text, x + 0.6, y + 0.6);
   ctx.restore();
-  ctx.fillStyle = "#fff";
   ctx.fillText(text, x, y);
 }
 
-function outlineFromMask(mask: Float32Array, cols: number, rows: number) {
-  const out = new Float32Array(cols * rows);
-  const idx = (x: number, y: number) => y * cols + x;
-  for (let y = 1; y < rows - 1; y++) {
-    for (let x = 1; x < cols - 1; x++) {
-      const m =
-        mask[idx(x, y)] > 0.02 &&
-        (mask[idx(x - 1, y)] < 0.02 ||
-          mask[idx(x + 1, y)] < 0.02 ||
-          mask[idx(x, y - 1)] < 0.02 ||
-          mask[idx(x, y + 1)] < 0.02);
-      out[idx(x, y)] = m ? 1 : 0;
-    }
-  }
-  return out;
-}
+/* ──────────────────────────────────────────────────────────────────────────────
+ * 1) KINETIC PRODUCT GRID
+ * ────────────────────────────────────────────────────────────────────────────── */
 
-/* =========================
-   Scene presets (posizioni)
-   ========================= */
-
-const SCENES: Record<
-  SceneKey,
-  {
-    title: string;
-    subtitle: string;
-    titleScale: number;
-    subScale: number;
-    titlePos: [number, number];
-    subPos: [number, number];
-    align: "center" | "left" | "right";
-  }
-> = {
-  home: {
-    title: "ShopIQ",
-    subtitle: "We Build, You Sell.",
-    titleScale: 0.24,
-    subScale: 0.09,
-    titlePos: [0.54, 0.52],
-    subPos: [0.54, 0.68],
-    align: "center",
-  },
-  services: {
-    title: "ShopIQ",
-    subtitle: "We Build, You Sell.",
-    titleScale: 0.22,
-    subScale: 0.085,
-    titlePos: [0.26, 0.32],
-    subPos: [0.28, 0.48],
-    align: "left",
-  },
-  about: {
-    title: "ShopIQ",
-    subtitle: "We Build, You Sell.",
-    titleScale: 0.23,
-    subScale: 0.085,
-    titlePos: [0.78, 0.38],
-    subPos: [0.76, 0.54],
-    align: "right",
-  },
-  blog: {
-    title: "ShopIQ",
-    subtitle: "We Build, You Sell.",
-    titleScale: 0.20,
-    subScale: 0.08,
-    titlePos: [0.50, 0.28],
-    subPos: [0.50, 0.44],
-    align: "center",
-  },
-  contact: {
-    title: "ShopIQ",
-    subtitle: "We Build, You Sell.",
-    titleScale: 0.22,
-    subScale: 0.085,
-    titlePos: [0.36, 0.70],
-    subPos: [0.38, 0.84],
-    align: "left",
-  },
+type GridTile = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  r: number; // radius
+  lane: number;
+  speed: number;
+  // swarm target (per composizione wordmark)
+  tx: number;
+  ty: number;
+  phaseOffset: number;
+  pinned: boolean;
 };
 
-/* =========================
-   Math helpers
-   ========================= */
+function drawKineticProductGrid(
+  ctx: CanvasRenderingContext2D,
+  { w, h }: { w: number; h: number },
+  P: { bg: string[]; ink: string },
+  t: number,
+  tilesRef: React.MutableRefObject<GridTile[]>,
+  mask: { cols: number; rows: number; alpha: Float32Array }
+) {
+  const safe = Math.max(200, Math.min(320, Math.round(w * 0.18)));
+  const lanes = Math.max(3, Math.min(5, Math.floor(h / 220)));
+  const cardH = Math.max(54, Math.min(84, Math.floor(h / (lanes * 1.8))));
+  const cardW = Math.round(cardH * 1.6);
+  const radius = 10;
+
+  // inizializza card se vuote
+  if (tilesRef.current.length === 0) {
+    const countPerLane = Math.ceil((w / cardW) * 2.2);
+    const arr: GridTile[] = [];
+    for (let lane = 0; lane < lanes; lane++) {
+      for (let i = 0; i < countPerLane; i++) {
+        const y = Math.round((h * (lane + 0.5)) / lanes - cardH / 2);
+        const x = safe + i * (cardW + 28) + Math.random() * 60;
+        const speed = 0.25 + Math.random() * 0.3;
+        arr.push({
+          x,
+          y,
+          w: cardW,
+          h: cardH,
+          r: radius,
+          lane,
+          speed,
+          tx: x,
+          ty: y,
+          phaseOffset: Math.random(),
+          pinned: false,
+        });
+      }
+    }
+    // prepara target dalla mask: campiona punti e assegna a subset di card
+    const sample = sampleMaskPoints(mask, Math.floor((w * h) / 22000)); // densità punti
+    const cx = safe + (w - safe) * 0.55;
+    const cy = h * 0.55;
+    for (let i = 0; i < arr.length && i < sample.length; i++) {
+      const p = arr[i];
+      const [mx, my] = sample[i];
+      p.tx = Math.round(mx * (w / mask.cols));
+      p.ty = Math.round(my * (h / mask.rows));
+      // centro verso wordmark (per evitare offset troppo a sx)
+      p.tx = Math.round(cx + (p.tx - cx) * 0.9);
+      p.ty = Math.round(cy + (p.ty - cy) * 0.9);
+    }
+    tilesRef.current = arr;
+  }
+
+  // fasi
+  const f_nastro = clamp01(t / 0.4);
+  const f_swarm = clamp01((t - 0.4) / 1.2);
+  const f_lock = clamp01((t - 1.6) / 1.2);
+
+  // 1) nastri in loop (scorrimento orizzontale)
+  for (const c of tilesRef.current) {
+    if (f_swarm < 0.001) {
+      const loopW = w + cardW * 2;
+      c.x = safe + ((c.x + c.speed * 4 + (performance.now() / 16) * c.speed) % loopW) - cardW;
+    }
+  }
+
+  // 2) swarm: le card scorrono verso i target e “si agganciano”
+  for (const c of tilesRef.current) {
+    if (f_swarm > 0) {
+      const e = easeOutCubic(Math.pow(f_swarm, 0.9));
+      c.x = lerp(c.x, c.tx - c.w / 2, e);
+      c.y = lerp(c.y, c.ty - c.h / 2, e);
+    }
+  }
+
+  // 3) rendering
+  for (const c of tilesRef.current) {
+    const shadow = 6 * (1 - f_lock);
+    drawCard(ctx, c.x, c.y, c.w, c.h, c.r, {
+      fill: "#FFFFFF",
+      stroke: "rgba(15,42,36,0.06)",
+      shadow: shadow > 0 ? `0 ${shadow}px ${shadow * 2}px rgba(15,42,36,0.06)` : "",
+    });
+
+    // disegni interni (metadati fittizi) solo dopo lo swarm
+    if (f_swarm > 0.6) {
+      ctx.save();
+      ctx.translate(c.x + 12, c.y + 12);
+      ctx.fillStyle = "rgba(15,42,36,0.12)";
+      ctx.fillRect(0, 0, c.w * 0.4, 10); // titolo
+      ctx.fillRect(0, 18, c.w * 0.28, 8); // riga
+      ctx.fillRect(0, c.h - 20, c.w * 0.22, 10); // CTA
+      ctx.restore();
+    }
+  }
+
+  // 4) payoff: sottili righe sotto il wordmark
+  if (f_lock > 0.1) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (f_lock - 0.1) / 0.3);
+    const cx = safe + (w - safe) * 0.55;
+    const cy = h * 0.7;
+    ctx.fillStyle = "rgba(15,42,36,0.10)";
+    for (let i = 0; i < 3; i++) {
+      const ww = Math.min(520, (w - safe) * 0.62) * (1 - i * 0.12);
+      ctx.fillRect(cx - ww / 2, cy + i * 12, ww, 8);
+    }
+    ctx.restore();
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * 2) BLUEPRINT CONVEYOR
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+type ConveyorState = {
+  belts: { path: [number, number][]; width: number }[];
+  boxes: { x: number; y: number; w: number; h: number; t0: number; t1: number }[];
+  targets: Array<[number, number]>;
+};
+
+function drawBlueprintConveyor(
+  ctx: CanvasRenderingContext2D,
+  { w, h }: { w: number; h: number },
+  P: { bg: string[]; ink: string },
+  t: number,
+  stateRef: React.MutableRefObject<ConveyorState | null>,
+  mask: { cols: number; rows: number; alpha: Float32Array },
+  section: SceneKey
+) {
+  const safe = Math.max(200, Math.min(320, Math.round(w * 0.18)));
+
+  if (!stateRef.current) {
+    // belt paths (3 linee a serpentina)
+    const belts = [
+      { path: polyline([safe + 140, h * 0.28, w - 120, h * 0.28, w - 120, h * 0.40, safe + 180, h * 0.40]), width: 16 },
+      { path: polyline([safe + 160, h * 0.48, w - 160, h * 0.48, w - 160, h * 0.60, safe + 200, h * 0.60]), width: 16 },
+      { path: polyline([safe + 220, h * 0.68, w - 180, h * 0.68, w - 180, h * 0.72, safe + 240, h * 0.72]), width: 16 },
+    ];
+
+    // box che scorrono (verranno poi “catturati” dal wordmark)
+    const boxes: ConveyorState["boxes"] = [];
+    const lanes = 3;
+    const count = 18;
+    const now = performance.now();
+    for (let lane = 0; lane < lanes; lane++) {
+      for (let i = 0; i < count; i++) {
+        const t0 = now + (i * 120 + lane * 240);
+        const t1 = t0 + 2400;
+        boxes.push({
+          x: 0,
+          y: 0,
+          w: 64,
+          h: 42,
+          t0,
+          t1,
+        });
+      }
+    }
+
+    // target dal wordmask (punti campionati)
+    const targets = sampleMaskPoints(mask, Math.floor((w * h) / 24000)).map(([mx, my]) => [
+      Math.round(mx * (w / mask.cols)),
+      Math.round(my * (h / mask.rows)),
+    ]);
+
+    stateRef.current = { belts, boxes, targets };
+  }
+
+  const S = stateRef.current!;
+
+  // Fasi: 0–0.8 plotter (disegna linee), 0.8–1.6 boxes, 1.6–1 lock + assemble
+  const f_plot = clamp01(t / 0.8);
+  const f_move = clamp01((t - 0.8) / 0.8);
+  const f_lock = clamp01((t - 1.6) / 1.2);
+
+  // 1) disegno belt wireframe (plotter)
+  ctx.save();
+  ctx.strokeStyle = "rgba(15,42,36,0.35)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 6]);
+  for (const b of S.belts) {
+    strokePathProgress(ctx, b.path, f_plot);
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // 2) scatole che scorrono
+  const pathLens = S.belts.map((b) => pathLength(b.path));
+  for (let i = 0; i < S.boxes.length; i++) {
+    const box = S.boxes[i];
+    const lane = i % S.belts.length;
+    const path = S.belts[lane].path;
+    const L = pathLens[lane];
+
+    // progresso individuale lungo il path
+    const now = performance.now();
+    let pt = clamp01((now - box.t0) / (box.t1 - box.t0)) * (0.6 + f_move * 0.4); // accelera con f_move
+    // prima della fase lock, seguono il path
+    let { x, y, angle } = pointAt(path, L * pt);
+
+    // durante il lock, una parte delle scatole converge verso il wordmark
+    if (f_lock > 0.05 && i < S.targets.length) {
+      const e = easeOutCubic(Math.pow(f_lock, 0.9));
+      const [tx, ty] = S.targets[i];
+      x = lerp(x, tx, e);
+      y = lerp(y, ty, e);
+      angle = lerp(angle, 0, e);
+    }
+
+    drawBox(ctx, x, y, box.w, box.h, angle);
+  }
+
+  // 3) highlight del wordmark finale (righe sottili, una passata)
+  if (f_lock > 0.2) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(0.22, (f_lock - 0.2) / 0.4 * 0.22);
+    ctx.fillStyle = "rgba(15,42,36,0.12)";
+    const cx = safe + (w - safe) * 0.55;
+    const cy = h * 0.78;
+    for (let i = 0; i < 2; i++) {
+      const ww = Math.min(520, (w - safe) * 0.62) * (1 - i * 0.12);
+      ctx.fillRect(cx - ww / 2, cy + i * 12, ww, 8);
+    }
+    ctx.restore();
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * MICRO-VITA POST-LOCK
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+function drawBreathing(ctx: CanvasRenderingContext2D, { w, h }: { w: number; h: number }) {
+  // una lucentezza lievissima in diagonale (≤2%)
+  const t = (performance.now() % 3000) / 3000;
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, "rgba(255,255,255,0.00)");
+  grad.addColorStop(0.48 + Math.sin(t * Math.PI * 2) * 0.02, "rgba(255,255,255,0.02)");
+  grad.addColorStop(1, "rgba(255,255,255,0.00)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────────
+ * SHAPES & HELPERS
+ * ────────────────────────────────────────────────────────────────────────────── */
+
+function drawCard(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  style: { fill: string; stroke?: string; shadow?: string }
+) {
+  ctx.save();
+  if (style.shadow) (ctx as any).shadowColor = "rgba(15,42,36,0.10)", (ctx as any).shadowBlur = 0, (ctx as any).shadowOffsetY = parseFloat(style.shadow.split(" ")[1]);
+  ctx.fillStyle = style.fill;
+  roundedRect(ctx, x, y, w, h, r);
+  ctx.fill();
+  if (style.stroke) {
+    ctx.strokeStyle = style.stroke;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBox(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, angle: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.fillStyle = "#FFFFFF";
+  roundedRect(ctx, -w / 2, -h / 2, w, h, 8);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(15,42,36,0.20)";
+  ctx.stroke();
+  // rullini
+  ctx.fillStyle = "rgba(15,42,36,0.08)";
+  ctx.fillRect(-w / 2 + 10, h / 2 - 6, w - 20, 4);
+  ctx.fillRect(-w / 2 + 10, -h / 2 + 2, w - 20, 4);
+  ctx.restore();
+}
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, Math.min(w, h) / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function sampleMaskPoints(
+  mask: { cols: number; rows: number; alpha: Float32Array },
+  desired: number
+): Array<[number, number]> {
+  const pts: Array<[number, number]> = [];
+  const step = Math.max(2, Math.floor(Math.sqrt((mask.cols * mask.rows) / desired)));
+  for (let y = 0; y < mask.rows; y += step) {
+    for (let x = 0; x < mask.cols; x += step) {
+      if (mask.alpha[y * mask.cols + x] > 0.6) pts.push([x, y]);
+    }
+  }
+  return pts;
+}
+
+/* Paths per conveyor */
+
+function polyline(nums: number[]): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < nums.length; i += 2) pts.push([nums[i], nums[i + 1]]);
+  return pts;
+}
+
+function pathLength(path: [number, number][]) {
+  let L = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [x1, y1] = path[i - 1];
+    const [x2, y2] = path[i];
+    L += Math.hypot(x2 - x1, y2 - y1);
+  }
+  return L;
+}
+
+function pointAt(path: [number, number][], dist: number) {
+  let d = dist;
+  for (let i = 1; i < path.length; i++) {
+    const [x1, y1] = path[i - 1];
+    const [x2, y2] = path[i];
+    const seg = Math.hypot(x2 - x1, y2 - y1);
+    if (d <= seg) {
+      const t = d / seg;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      return { x, y, angle };
+    }
+    d -= seg;
+  }
+  const last = path[path.length - 1];
+  const prev = path[path.length - 2];
+  const angle = Math.atan2(last[1] - prev[1], last[0] - prev[0]);
+  return { x: last[0], y: last[1], angle };
+}
+
+/* Math utils */
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
-const clampInt = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-function remap(x: number, a: number, b: number, c: number, d: number) {
-  return c + ((x - a) * (d - c)) / (b - a);
-}
