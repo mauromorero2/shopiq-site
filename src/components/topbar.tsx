@@ -6,11 +6,10 @@ import { playClick } from "@/lib/sfx";
 export function TopBar() {
   const { lang, setLang, muted, setMuted } = useUI();
 
-  // sblocca reduce-motion se il sistema lo impone (solo per coerenza, non mostriamo toggle)
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (mq.matches) {
-      // non facciamo nulla nell'UI; lo sfondo già rispetta questa preferenza
+      // nessun toggle visibile; lo sfondo già rispetta la preferenza
     }
   }, []);
 
@@ -20,7 +19,13 @@ export function TopBar() {
       <span className="text-sm md:text-base tracking-wide select-none">ShopIQ</span>
 
       <div className="ml-auto flex items-center gap-2 md:gap-3">
-        <LangSwitch lang={lang} onChange={(v) => { playClick(muted); setLang(v); }} />
+        <LangSwitch
+          lang={lang}
+          onChange={(v) => {
+            playClick(muted);
+            setLang(v);
+          }}
+        />
         <MuteSwitch muted={muted} onToggle={() => setMuted(!muted)} />
       </div>
     </div>
@@ -28,9 +33,8 @@ export function TopBar() {
 }
 
 /* ------------------------
-   Language switch: IT / EN
+   Language switch: IT / EN (senza bordi)
    ------------------------ */
-
 function LangSwitch({
   lang,
   onChange,
@@ -53,8 +57,8 @@ function LangSwitch({
       onClick={onClick}
       aria-pressed={active}
       aria-label={label}
-      className={`inline-flex items-center justify-center rounded-md border px-1.5 py-1 transition
-        ${active ? "bg-[#F7FFFB] border-mac-ink/30" : "bg-white border-mac-ink/15 hover:border-mac-ink/30"}`}
+      className={`inline-flex items-center justify-center rounded-md px-1.5 py-1 transition
+        ${active ? "bg-[#F7FFFB]" : "bg-white hover:bg-[#F7FFFB]"}`}
       style={{ boxShadow: active ? "0 1px 0 rgba(15,42,36,0.06)" : "none" }}
     >
       {children}
@@ -73,7 +77,7 @@ function LangSwitch({
   );
 }
 
-/* Pixel flags (stile 32-bit, crisp) */
+/* Pixel flags (stile 32-bit, crisp) — senza bordo */
 function FlagIT() {
   return (
     <svg width="28" height="18" viewBox="0 0 28 18" shapeRendering="crispEdges" aria-hidden>
@@ -81,14 +85,11 @@ function FlagIT() {
       <rect x="0" y="0" width="9" height="18" fill="#2ECC71" />   {/* verde */}
       <rect x="9" y="0" width="10" height="18" fill="#FFFFFF" />  {/* bianco */}
       <rect x="19" y="0" width="9" height="18" fill="#E74C3C" />  {/* rosso */}
-      {/* bordo leggero per look più netto su sfondi chiari */}
-      <rect x="0.5" y="0.5" width="27" height="17" fill="none" stroke="rgba(15,42,36,0.10)" />
     </svg>
   );
 }
 
 function FlagEN() {
-  // Union Jack semplificata, geometria “pixel” per maggiore leggibilità
   return (
     <svg width="28" height="18" viewBox="0 0 28 18" shapeRendering="crispEdges" aria-hidden>
       <rect width="28" height="18" fill="#2C5AA0" /> {/* blu */}
@@ -104,16 +105,13 @@ function FlagEN() {
       {/* diagonali rosse sottili */}
       <polygon points="0,0 1.6,0 28,14 28,15.6" fill="#E03131" />
       <polygon points="28,0 26.4,0 0,14 0,15.6" fill="#E03131" />
-      {/* bordo */}
-      <rect x="0.5" y="0.5" width="27" height="17" fill="none" stroke="rgba(15,42,36,0.10)" />
     </svg>
   );
 }
 
 /* ------------------------
-   Mute switch (icona stile Mac)
+   Mute switch (icona stile Mac) — senza bordo
    ------------------------ */
-
 function MuteSwitch({
   muted,
   onToggle,
@@ -126,8 +124,8 @@ function MuteSwitch({
       onClick={onToggle}
       title={muted ? "Sound off" : "Sound on"}
       aria-pressed={muted}
-      className={`inline-flex items-center justify-center rounded-md border px-2 py-1
-        ${muted ? "bg-white border-mac-ink/30" : "bg-white border-mac-ink/15 hover:border-mac-ink/30"}`}
+      className={`inline-flex items-center justify-center rounded-md px-2 py-1
+        ${muted ? "bg-[#F7FFFB]" : "bg-white hover:bg-[#F7FFFB]"}`}
       onMouseDown={(e) => e.preventDefault()}
     >
       {muted ? <IconVolumeOff /> : <IconVolumeOn />}
