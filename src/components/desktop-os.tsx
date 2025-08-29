@@ -2,6 +2,7 @@
 import { motion } from "framer-motion";
 import { useRef } from "react";
 import { useUI, type Section } from "@/lib/store/ui";
+import { playClick } from "@/lib/sfx";
 
 const GRID = { x: 120, y: 120 };
 const ICONS: { key: Section; label_it: string; label_en: string }[] = [
@@ -14,12 +15,20 @@ const ICONS: { key: Section; label_it: string; label_en: string }[] = [
 export function DesktopOS() {
   const setSection = useUI((s) => s.setSection);
   const lang = useUI((s) => s.lang);
+  const muted = useUI((s) => s.muted);
 
   return (
     <div className="absolute inset-0 pt-12">
       <div className="absolute left-6 top-16 space-y-6">
         {ICONS.map((it) => (
-          <Icon key={it.key} label={lang === "it" ? it.label_it : it.label_en} onOpen={() => setSection(it.key)} />
+          <Icon
+            key={it.key}
+            label={lang === "it" ? it.label_it : it.label_en}
+            onOpen={() => {
+              playClick(muted);
+              setSection(it.key);
+            }}
+          />
         ))}
       </div>
     </div>
@@ -49,16 +58,15 @@ function Icon({ label, onOpen }: { label: string; onOpen: () => void }) {
       }}
     >
       <div className="flex flex-col items-center gap-1">
-        <div className="p-2 bg-white/70 border border-mac-ink rounded-xl shadow-md">
-          <div className="w-8 h-8 bg-mac-bg1 border border-mac-ink" />
+        <div className="p-2 bg-white border border-mac-ink/15 rounded-xl shadow-sm">
+          <div className="w-8 h-8 bg-[#F7FFFB] border border-mac-ink/15" />
         </div>
         <span
-  className="text-[10px] text-center leading-tight"
-  style={{ textShadow: "0 1px 0 rgba(255,255,255,0.9), 0 0 2px rgba(255,255,255,0.55)" }}
->
-  {label}
-</span>
-
+          className="text-[10px] text-center leading-tight"
+          style={{ textShadow: "0 1px 0 rgba(255,255,255,0.9), 0 0 2px rgba(255,255,255,0.55)" }}
+        >
+          {label}
+        </span>
       </div>
     </motion.div>
   );
