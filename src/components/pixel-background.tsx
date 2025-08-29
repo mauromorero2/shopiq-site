@@ -468,10 +468,14 @@ function drawBlueprintConveyor(
     }
 
     // target dal wordmask (punti campionati)
-    const targets = sampleMaskPoints(mask, Math.floor((w * h) / 24000)).map(([mx, my]) => [
-      Math.round(mx * (w / mask.cols)),
-      Math.round(my * (h / mask.rows)),
-    ]);
+    const targets: [number, number][] = sampleMaskPoints(
+  mask,
+  Math.floor((w * h) / 24000)
+).map(([mx, my]): [number, number] => [
+  Math.round(mx * (w / mask.cols)),
+  Math.round(my * (h / mask.rows)),
+]);
+
 
     stateRef.current = { belts, boxes, targets };
   }
