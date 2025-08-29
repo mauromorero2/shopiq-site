@@ -52,7 +52,13 @@ function Icon({ label, onOpen }: { label: string; onOpen: () => void }) {
         <div className="p-2 bg-white/70 border border-mac-ink rounded-xl shadow-md">
           <div className="w-8 h-8 bg-mac-bg1 border border-mac-ink" />
         </div>
-        <span className="text-[10px] text-center leading-tight">{label}</span>
+        <span
+  className="text-[10px] text-center leading-tight"
+  style={{ textShadow: "0 1px 0 rgba(255,255,255,0.9), 0 0 2px rgba(255,255,255,0.55)" }}
+>
+  {label}
+</span>
+
       </div>
     </motion.div>
   );
