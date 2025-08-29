@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+:root {
+  --mac-bg1: #d9dee7;
+  --mac-bg2: #c9d3e3;
+  --mac-bg3: #b9c6db;
+  --mac-ink: #0f172a;
+  --accent: #39FF14;
+}
+
+html, body { height: 100%; }
+body { background: var(--mac-bg3); color: var(--mac-ink); }
