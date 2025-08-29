@@ -1,13 +1,20 @@
 // SFX 8-bit via WebAudio (square/noise)
-let _ctx: AudioContext | null = null;
+let _ctx: AudioContext | undefined;
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
-  const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+  const AC: any =
+    (window as any).AudioContext || (window as any).webkitAudioContext;
   if (!AC) return null;
-  if (!_ctx) _ctx = new AC();
-  if (_ctx.state === "suspended") _ctx.resume().catch(() => {});
-  return _ctx;
+
+  // crea un ctx locale certo e poi sincronizza _ctx
+  const ctx: AudioContext = _ctx ?? new AC();
+  _ctx = ctx;
+
+  if (ctx.state === "suspended") {
+    ctx.resume().catch(() => {});
+  }
+  return ctx;
 }
 
 export function playClick(muted: boolean) {
