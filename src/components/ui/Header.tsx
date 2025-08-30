@@ -1,20 +1,15 @@
-// src/components/ui/Header.tsx
 "use client";
-
 import Link from "next/link";
 import { useState } from "react";
-import BrainIcon from "@/components/icons/BrainIcon"; // <-- aggiungi questa import
+import BrainIcon from "@/components/icons/BrainIcon";
 
 export default function Header() {
   const [muted, setMuted] = useState(true);
-
   return (
     <div className="relative z-20 h-14 border-b border-black bg-white">
       <div className="mx-4 flex h-full items-center justify-between">
         <div className="flex items-center gap-4">
-          {/* Sostituisce l'immagine: */}
           <BrainIcon size={22} className="text-black" />
-
           <nav className="flex items-center gap-10">
             <Link href="/" className="hover:underline underline-offset-2">ShopIQ</Link>
             <Link href="/servizi" className="hover:underline underline-offset-2">Servizi</Link>
@@ -22,13 +17,11 @@ export default function Header() {
             <Link href="/contatti" className="hover:underline underline-offset-2">Contatti</Link>
           </nav>
         </div>
-
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-6">
             <button className="hover:underline underline-offset-2">IT</button>
             <button className="hover:underline underline-offset-2">EN</button>
           </div>
-
           <button
             aria-label={muted ? "Audio disattivato" : "Audio attivo"}
             onClick={() => setMuted(m => !m)}
