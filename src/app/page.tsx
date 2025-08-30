@@ -1,4 +1,3 @@
-// src/app/page.tsx
 import Header from "@/components/ui/Header";
 import Wallpaper from "@/components/ui/Wallpaper";
 import DraggableIcon from "@/components/ui/DraggableIcon";
@@ -11,13 +10,12 @@ export default function Page() {
       <Header />
       <Wallpaper />
 
-      {/* Colonna destra — icone draggabili con snap */}
+      {/* Colonna destra — icone draggabili */}
       <DraggableIcon label="Macintosh HD" kind="disk" initialY={200} />
       <DraggableIcon label="Kid Pix" kind="app" initialY={320} />
-      {/* valore fisso lato server; poi l’utente la può trascinare */}
       <DraggableIcon label="Trash" kind="trash" initialY={760} />
 
-      {/* Finestra frontale — draggabile */}
+      {/* Finestra frontale */}
       <DraggableWindow
         title="System Disk"
         infoLeft="5 items"
@@ -36,7 +34,7 @@ export default function Page() {
         </div>
       </DraggableWindow>
 
-      {/* Finestra “sotto” — draggabile */}
+      {/* Finestra “sotto” */}
       <DraggableWindow title="" width={660} height={240} initial={{ x: 360, y: 520 }}>
         <div className="p-6" />
       </DraggableWindow>
