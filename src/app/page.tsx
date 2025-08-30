@@ -14,7 +14,8 @@ export default function Page() {
       {/* Colonna destra — icone draggabili con snap */}
       <DraggableIcon label="Macintosh HD" kind="disk" initialY={200} />
       <DraggableIcon label="Kid Pix" kind="app" initialY={320} />
-      <DraggableIcon label="Trash" kind="trash" initialY={window?.innerHeight ? window.innerHeight - 140 : 700} />
+      {/* valore fisso lato server; poi l’utente la può trascinare */}
+      <DraggableIcon label="Trash" kind="trash" initialY={760} />
 
       {/* Finestra frontale — draggabile */}
       <DraggableWindow
