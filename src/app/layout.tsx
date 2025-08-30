@@ -1,18 +1,27 @@
-import "./globals.css";
+// src/app/layout.tsx
 import type { Metadata } from "next";
-import { Press_Start_2P } from "next/font/google";
+import "./globals.css";
+import { Jersey_10 } from "next/font/google";
 
-const pressStart = Press_Start_2P({ weight: "400", subsets: ["latin"], display: "swap" });
+const jersey = Jersey_10({
+  weight: "400",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "Shop IQ",
-  description: "Pixel OS experimental site"
+  title: "ShopIQ",
+  description: "ShopIQ — OS-style UI",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="it" suppressHydrationWarning>
-      <body className={`${pressStart.className} bg-mac-bg3 text-mac-ink overflow-x-hidden`}>
+    <html lang="it" className="h-full">
+      <body
+        className={`${jersey.className} h-full text-black bg-white select-none`}
+        // rendering “crisp”
+        style={{ imageRendering: "pixelated" }}
+      >
         {children}
       </body>
     </html>
