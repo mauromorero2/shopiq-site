@@ -1,0 +1,16 @@
+/* src/styles/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Niente smoothing per un look 1-bit */
+* {
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility per linee croccanti su dispositivi HiDPI */
+.svg-crisp {
+  shape-rendering: crispEdges;
+  vector-effect: non-scaling-stroke;
+}
