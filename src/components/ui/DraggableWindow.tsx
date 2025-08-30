@@ -1,26 +1,14 @@
 "use client";
-
 import { useState } from "react";
 import Draggable from "./Draggable";
 import WindowChrome from "./WindowChrome";
 
 export default function DraggableWindow({
-  title,
-  infoLeft,
-  infoCenter,
-  infoRight,
-  width,
-  height,
-  initial,
-  children,
+  title, infoLeft, infoCenter, infoRight,
+  width, height, initial, children,
 }: {
-  title: string;
-  infoLeft?: string;
-  infoCenter?: string;
-  infoRight?: string;
-  width: number;
-  height: number;
-  initial: { x: number; y: number };
+  title: string; infoLeft?: string; infoCenter?: string; infoRight?: string;
+  width: number; height: number; initial: { x: number; y: number };
   children?: React.ReactNode;
 }) {
   const [focused, setFocused] = useState(true);
@@ -29,6 +17,7 @@ export default function DraggableWindow({
     <Draggable
       initial={initial}
       snap={8}
+      handleSelector="[data-drag-handle='1']"
       onFocus={() => setFocused(true)}
       className="cursor-default"
     >
@@ -40,7 +29,6 @@ export default function DraggableWindow({
           infoLeft={infoLeft}
           infoCenter={infoCenter}
           infoRight={infoRight}
-          focused={focused}
         >
           {children}
         </WindowChrome>
